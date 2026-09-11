@@ -20,7 +20,9 @@ import {
   Briefcase,
   FileCode,
   Sparkles,
-  MapPin
+  MapPin,
+  ShieldCheck,
+  ScanLine
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -42,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, onO
     label: string;
     rfCode: string;
     icon: React.ComponentType<{ className?: string }>;
-    badge?: number;
+    badge?: number | string;
     badgeColor?: string;
   }[] = [
     { id: 'dashboard', label: 'Dashboard Ejecutivo', rfCode: 'RF-016', icon: LayoutDashboard },
@@ -84,6 +86,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, onO
       badge: activeBlockedCount > 0 ? activeBlockedCount : undefined,
       badgeColor: 'bg-rose-500 text-white'
     },
+    {
+      id: 'driver_qr_scanner',
+      label: 'Control Garita / Escáner QR',
+      rfCode: 'GARITA-QR',
+      icon: ScanLine,
+      badge: 'CÁMARA',
+      badgeColor: 'bg-emerald-600 text-white'
+    },
     { id: 'random_selection', label: 'Selección Aleatoria', rfCode: 'RF-005', icon: Dices },
     { id: 'drivers_fleet', label: 'Conductores y Flota', rfCode: 'RF-003/4', icon: Users },
     {
@@ -115,6 +125,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, onO
     },
     { id: 'reports', label: 'Reportes SUSESO / DT / PDF', rfCode: 'RF-017', icon: FileSpreadsheet },
     { id: 'audit_logs', label: 'Bitácora Inalterable (Audit Log)', rfCode: 'RF-020', icon: History },
+    {
+      id: 'suseso_verification_log',
+      label: 'Trazabilidad SUSESO (RF-019)',
+      rfCode: 'Dictamen',
+      icon: ShieldCheck,
+      badge: 'SUSESO',
+      badgeColor: 'bg-emerald-600 text-white'
+    },
     { id: 'architecture', label: 'Arquitectura & Flujo (7 Capas)', rfCode: 'SYSTEM', icon: Layers },
   ];
 

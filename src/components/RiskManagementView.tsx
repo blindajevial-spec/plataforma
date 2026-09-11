@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { RiskItem } from '../types';
+import { SafetyAlertsEmailModal } from './SafetyAlertsEmailModal';
 import {
   ShieldAlert,
   PlusCircle,
@@ -11,15 +12,17 @@ import {
   TrendingDown,
   Layers,
   Sparkles,
-  X
+  X,
+  Mail
 } from 'lucide-react';
 
 export const RiskManagementView: React.FC = () => {
-  const { risks, addRisk, updateRisk, currentCompany } = useApp();
+  const { risks, addRisk, updateRisk, currentCompany, safetyRiskThresholds } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRiskCategory, setSelectedRiskCategory] = useState('all');
   const [selectedHeatmapCell, setSelectedHeatmapCell] = useState<{ prob: number; imp: number } | null>(null);
+  const [isSafetyEmailModalOpen, setIsSafetyEmailModalOpen] = useState(false);
 
   // Modal
   const [isNewRiskModalOpen, setIsNewRiskModalOpen] = useState(false);
@@ -117,13 +120,27 @@ export const RiskManagementView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsNewRiskModalOpen(true)}
-          className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-rose-600/20 transition cursor-pointer shrink-0"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span>Registrar Nuevo Riesgo</span>
-        </button>
+        <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+          <button
+            onClick={() => setIsSafetyEmailModalOpen(true)}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition cursor-pointer"
+            title="Configuración de Umbrales Críticos y Disparo Automático por Correo"
+          >
+            <Mail className="w-4 h-4 text-amber-400" />
+            <span>Umbrales & Alertas por Correo</span>
+            <span className="bg-emerald-950 text-emerald-300 border border-emerald-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+              SUSESO
+            </span>
+          </button>
+
+          <button
+            onClick={() => setIsNewRiskModalOpen(true)}
+            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-rose-600/20 transition cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Registrar Nuevo Riesgo</span>
+          </button>
+        </div>
       </div>
 
       {/* Heatmap & Overview */}
@@ -420,6 +437,12 @@ export const RiskManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Safety Alerts Email Modal */}
+      <SafetyAlertsEmailModal
+        isOpen={isSafetyEmailModalOpen}
+        onClose={() => setIsSafetyEmailModalOpen(false)}
+      />
     </div>
   );
 };

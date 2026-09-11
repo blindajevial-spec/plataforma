@@ -6,6 +6,7 @@ import { DriverDocValidationModal } from './documents/DriverDocValidationModal';
 import { DriverDocRenewModal } from './documents/DriverDocRenewModal';
 import { DriverDocSignModal } from './documents/DriverDocSignModal';
 import { DriverDocUploadModal } from './documents/DriverDocUploadModal';
+import { SusesoVerificationLog } from './SusesoVerificationLog';
 import {
   calculateExpiryStatus,
   analyzeSignature,
@@ -54,13 +55,14 @@ export const DocumentManagerView: React.FC = () => {
     verifyAllDriverDocuments,
     renewDriverDocumentExpiry,
     signDriverDocument,
+    documentApprovalLogs,
     currentCompany,
     currentUser,
     showToast
   } = useApp();
 
-  // Active Tab: 'driver_docs' | 'institutional_docs'
-  const [activeTab, setActiveTab] = useState<'driver_docs' | 'institutional_docs'>('driver_docs');
+  // Active Tab: 'driver_docs' | 'institutional_docs' | 'suseso_verification_log'
+  const [activeTab, setActiveTab] = useState<'driver_docs' | 'institutional_docs' | 'suseso_verification_log'>('driver_docs');
 
   // Filters for Driver Documents
   const [driverSearch, setDriverSearch] = useState('');
@@ -318,6 +320,23 @@ export const DocumentManagerView: React.FC = () => {
             activeTab === 'institutional_docs' ? 'bg-blue-500/20 text-blue-300' : 'bg-slate-800 text-slate-400'
           }`}>
             {documents.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('suseso_verification_log')}
+          className={`pb-3 px-4 text-xs font-bold flex items-center gap-2 border-b-2 transition cursor-pointer ${
+            activeTab === 'suseso_verification_log'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+          <span>Bitácora de Verificación SUSESO (RF-019)</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] ${
+            activeTab === 'suseso_verification_log' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
+          }`}>
+            {documentApprovalLogs.length}
           </span>
         </button>
       </div>
@@ -825,6 +844,15 @@ export const DocumentManagerView: React.FC = () => {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: SUSESO VERIFICATION LOG & AUDIT TRAIL (RF-019)                     */}
+      {/* ========================================================================= */}
+      {activeTab === 'suseso_verification_log' && (
+        <div className="animate-in fade-in duration-150">
+          <SusesoVerificationLog />
         </div>
       )}
 

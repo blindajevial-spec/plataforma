@@ -16,12 +16,15 @@ import { DocumentManagerView } from './components/DocumentManagerView';
 import { EquipmentView } from './components/EquipmentView';
 import { ExecutiveReportsView } from './components/ExecutiveReportsView';
 import { AuditLogsView } from './components/AuditLogsView';
+import { SusesoVerificationLog } from './components/SusesoVerificationLog';
 import { SystemArchitectureView } from './components/SystemArchitectureView';
 import { ImageStudioView } from './components/ImageStudioView';
 import { MapsGroundingView } from './components/MapsGroundingView';
 import { NewTestModal } from './components/NewTestModal';
 import { TestDetailModal } from './components/TestDetailModal';
 import { SusesoManualModal } from './components/SusesoManualModal';
+import { DriverQRScannerModal } from './components/DriverQRScannerModal';
+import { OfflineStatusBanner } from './components/OfflineStatusBanner';
 import { NavView, TestRecord } from './types';
 
 const MainLayout: React.FC = () => {
@@ -29,6 +32,14 @@ const MainLayout: React.FC = () => {
   const [isNewTestModalOpen, setIsNewTestModalOpen] = useState(false);
   const [selectedTestForDetail, setSelectedTestForDetail] = useState<TestRecord | null>(null);
   const [isSusesoManualOpen, setIsSusesoManualOpen] = useState(false);
+  const [isDriverQRScannerOpen, setIsDriverQRScannerOpen] = useState(false);
+  const [initialDriverIdForNewTest, setInitialDriverIdForNewTest] = useState<string | undefined>(undefined);
+
+  const handleOpenNewTestForDriver = (driverId: string) => {
+    setInitialDriverIdForNewTest(driverId);
+    setIsDriverQRScannerOpen(false);
+    setIsNewTestModalOpen(true);
+  };
 
   const renderView = () => {
     switch (currentView) {
@@ -36,7 +47,10 @@ const MainLayout: React.FC = () => {
         return (
           <DashboardView
             onNavigate={(view) => setCurrentView(view as NavView)}
-            onOpenNewTest={() => setIsNewTestModalOpen(true)}
+            onOpenNewTest={() => {
+              setInitialDriverIdForNewTest(undefined);
+              setIsNewTestModalOpen(true);
+            }}
           />
         );
       case 'integral_service':
@@ -47,11 +61,25 @@ const MainLayout: React.FC = () => {
         return <MapsGroundingView />;
       case 'specifications':
         return <SpecificationsView />;
+      case 'driver_qr_scanner':
+        return (
+          <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+            <DriverQRScannerModal
+              isOpen={true}
+              onClose={() => setCurrentView('dashboard')}
+              onOpenNewTestForDriver={handleOpenNewTestForDriver}
+            />
+          </div>
+        );
       case 'tests':
         return (
           <TestingView
-            onOpenNewTestModal={() => setIsNewTestModalOpen(true)}
+            onOpenNewTestModal={() => {
+              setInitialDriverIdForNewTest(undefined);
+              setIsNewTestModalOpen(true);
+            }}
             onViewTestDetails={(test) => setSelectedTestForDetail(test)}
+            onOpenQRScanner={() => setIsDriverQRScannerOpen(true)}
           />
         );
       case 'random_selection':
@@ -74,6 +102,8 @@ const MainLayout: React.FC = () => {
         return <ExecutiveReportsView />;
       case 'audit_logs':
         return <AuditLogsView />;
+      case 'suseso_verification_log':
+        return <SusesoVerificationLog />;
       case 'architecture':
       case 'api':
         return <SystemArchitectureView />;
@@ -90,7 +120,13 @@ const MainLayout: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased">
       {/* Top Navbar */}
-      <Navbar onNavigate={(view) => setCurrentView(view as NavView)} />
+      <Navbar
+        onNavigate={(view) => setCurrentView(view as NavView)}
+        onOpenDriverQRScanner={() => setIsDriverQRScannerOpen(true)}
+      />
+
+      {/* Field Connectivity and Offline Status Banner */}
+      <OfflineStatusBanner />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Navigation */}
@@ -109,7 +145,11 @@ const MainLayout: React.FC = () => {
       {/* Global Modals */}
       <NewTestModal
         isOpen={isNewTestModalOpen}
-        onClose={() => setIsNewTestModalOpen(false)}
+        onClose={() => {
+          setIsNewTestModalOpen(false);
+          setInitialDriverIdForNewTest(undefined);
+        }}
+        initialDriverId={initialDriverIdForNewTest}
       />
 
       <TestDetailModal
@@ -121,6 +161,15 @@ const MainLayout: React.FC = () => {
         isOpen={isSusesoManualOpen}
         onClose={() => setIsSusesoManualOpen(false)}
       />
+
+      {/* Standalone Driver QR Scanner Modal */}
+      {isDriverQRScannerOpen && (
+        <DriverQRScannerModal
+          isOpen={isDriverQRScannerOpen}
+          onClose={() => setIsDriverQRScannerOpen(false)}
+          onOpenNewTestForDriver={handleOpenNewTestForDriver}
+        />
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Driver, DrugType, DrugPanelResult, TestRecord } from '../types';
 import {
@@ -23,13 +23,20 @@ import { validateNewTestFormData } from '../schemas/testValidationSchema';
 interface NewTestModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialDriverId?: string;
 }
 
-export const NewTestModal: React.FC<NewTestModalProps> = ({ isOpen, onClose }) => {
+export const NewTestModal: React.FC<NewTestModalProps> = ({ isOpen, onClose, initialDriverId }) => {
   const { drivers, vehicles, equipment, currentUser, currentCompany, addTestRecord } = useApp();
 
-  const [selectedDriverId, setSelectedDriverId] = useState<string>(drivers[0]?.id || '');
+  const [selectedDriverId, setSelectedDriverId] = useState<string>(initialDriverId || drivers[0]?.id || '');
   const [reason, setReason] = useState<TestRecord['reason']>('Pre-turno');
+
+  useEffect(() => {
+    if (initialDriverId) {
+      setSelectedDriverId(initialDriverId);
+    }
+  }, [initialDriverId]);
   
   // Alcohol
   const [alcoholTested, setAlcoholTested] = useState(true);

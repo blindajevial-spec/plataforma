@@ -1,5 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { TestRecord } from '../types';
+import { useApp } from '../context/AppContext';
+import { SafetyAlertsEmailModal } from './SafetyAlertsEmailModal';
+import { TestLocationMapSnippet } from './TestLocationMapSnippet';
 import {
   X,
   Printer,
@@ -11,7 +14,10 @@ import {
   Calendar,
   User,
   Truck,
-  Download
+  Download,
+  Mail,
+  Send,
+  ShieldAlert
 } from 'lucide-react';
 
 interface TestDetailModalProps {
@@ -20,6 +26,9 @@ interface TestDetailModalProps {
 }
 
 export const TestDetailModal: React.FC<TestDetailModalProps> = ({ test, onClose }) => {
+  const { safetyEmailLogs, safetyManagerRecipients } = useApp();
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+
   if (!test) return null;
 
   const handlePrint = () => {
@@ -27,6 +36,8 @@ export const TestDetailModal: React.FC<TestDetailModalProps> = ({ test, onClose 
   };
 
   const isApto = test.overallStatus === 'apto_despacho';
+  const relatedEmailLog = safetyEmailLogs.find((l) => l.testCode === test.code);
+  const activeRecipientsCount = safetyManagerRecipients.filter((r) => r.active).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs overflow-y-auto">
@@ -96,9 +107,18 @@ export const TestDetailModal: React.FC<TestDetailModalProps> = ({ test, onClose 
               <p className="text-[10px] font-bold text-slate-400 print:text-gray-500 uppercase">Contexto Operacional</p>
               <p className="font-medium text-slate-200 print:text-black mt-0.5">Motivo: <span className="font-bold">{test.reason}</span></p>
               <p className="font-mono text-slate-300 print:text-gray-700">Vehículo / Tracto: {test.vehiclePlate || 'N/A'}</p>
-              <p className="text-slate-400 print:text-gray-600">Lugar: {test.geolocation?.locationName || 'Garita de Despacho'}</p>
+              <p className="text-slate-400 print:text-gray-600">Lugar: {test.geolocation?.locationName || test.driverBase || 'Garita de Despacho'}</p>
             </div>
           </div>
+
+          {/* 1.5. Georreferenciación en Terreno (GPS Map Snippet) */}
+          <TestLocationMapSnippet
+            geolocation={test.geolocation}
+            driverBase={test.driverBase}
+            testCode={test.code}
+            timestamp={test.timestamp}
+            vehiclePlate={test.vehiclePlate}
+          />
 
           {/* 2. Resultados de las Pruebas */}
           <div className="space-y-3">
@@ -181,6 +201,50 @@ export const TestDetailModal: React.FC<TestDetailModalProps> = ({ test, onClose 
             )}
           </div>
 
+          {/* 3.5. Alerta Automática de Seguridad por Correo (no-print) */}
+          {!isApto && (
+            <div className="p-4 bg-slate-900 border border-red-500/40 rounded-xl space-y-2.5 print:hidden">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-red-500/20 flex items-center justify-center text-red-400">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-white">
+                      Notificación Automática a Jefaturas de Seguridad y Prevención
+                    </h5>
+                    <span className="text-[10px] text-slate-400">
+                      Protocolo SUSESO N° 92064-2025 • Tolerancia Cero
+                    </span>
+                  </div>
+                </div>
+
+                <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
+                  {relatedEmailLog ? 'CORREO ENTREGADO' : 'CIRCUITO ACTIVO'}
+                </span>
+              </div>
+
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Este examen superó los umbrales críticos corporativos. El sistema despachó el resumen ejecutivo con acta pericial y checklist de contención inmediata a las casillas de prevención registradas.
+              </p>
+
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-t border-slate-800 text-[11px]">
+                <span className="text-slate-400">
+                  Destinatarios activos: <strong>{activeRecipientsCount} Jefes de Seguridad</strong>
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setIsEmailModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/40 rounded-lg font-semibold transition cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Inspeccionar / Reenviar Alerta por Correo</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 4. Firmas y Trazabilidad Legal */}
           <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-800 print:border-gray-400 text-xs">
             <div className="text-center">
@@ -210,6 +274,13 @@ export const TestDetailModal: React.FC<TestDetailModalProps> = ({ test, onClose 
           </div>
         </div>
       </div>
+
+      {/* Safety Alerts Email Modal */}
+      <SafetyAlertsEmailModal
+        isOpen={isEmailModalOpen}
+        onClose={() => setIsEmailModalOpen(false)}
+        initialTestToAlert={test}
+      />
     </div>
   );
 };

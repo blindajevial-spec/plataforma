@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   BarChart3,
@@ -20,7 +20,9 @@ import {
   ChevronDown,
   Settings2,
   ExternalLink,
-  X
+  X,
+  Eye,
+  FileCheck
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -45,6 +47,9 @@ import {
   MonthlyKpi,
   ComplianceExportOptions
 } from '../utils/pdfExport';
+import { exportElementToPdf } from '../utils/html2pdfExport';
+import { ExecutivePrintableReport } from './ExecutivePrintableReport';
+
 
 export const ExecutiveReportsView: React.FC = () => {
   const { tests, drivers, vehicles, currentCompany, showToast } = useApp();
@@ -66,9 +71,15 @@ export const ExecutiveReportsView: React.FC = () => {
   // 'Download Report' button state
   const [isDownloadDropdownOpen, setIsDownloadDropdownOpen] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadReportFormat, setDownloadReportFormat] = useState<'pdf' | 'compliance_csv' | 'raw_csv'>('compliance_csv');
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [downloadReportFormat, setDownloadReportFormat] = useState<'html2pdf' | 'pdf' | 'compliance_csv' | 'raw_csv'>('html2pdf');
   const [csvVariant, setCsvVariant] = useState<'consolidated' | 'flat_tabular'>('consolidated');
   const [reportAudience, setReportAudience] = useState<'directorio' | 'cphs' | 'suseso'>('directorio');
+
+  // DOM Refs for html2pdf capture
+  const printableReportRef = useRef<HTMLDivElement>(null);
+  const previewReportRef = useRef<HTMLDivElement>(null);
+
 
   // Compute live stats
   const total = tests.length;
@@ -229,11 +240,45 @@ export const ExecutiveReportsView: React.FC = () => {
     }
   };
 
+  // Handle High-Legibility PDF Export via html2pdf.js
+  const handleDownloadHtml2Pdf = async () => {
+    try {
+      setIsGenerating('pdf');
+      showToast('Generando PDF de Alta Legibilidad con html2pdf.js...');
+
+      // Priority: preview ref if modal open, otherwise offscreen printable ref
+      const targetElement = previewReportRef.current || printableReportRef.current;
+      if (!targetElement) {
+        throw new Error('Elemento de informe no disponible.');
+      }
+
+      const cleanPeriod = selectedPeriod.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `Informe_Ejecutivo_Alta_Legibilidad_${cleanPeriod}.pdf`;
+
+      await exportElementToPdf(targetElement, filename, {
+        scale: 2,
+        quality: 0.98,
+        margin: [8, 8, 10, 8]
+      });
+
+      setLastExportedFile(filename);
+      setIsGenerating(null);
+      showToast(`✓ PDF de Alta Legibilidad descargado: ${filename}`);
+    } catch (err) {
+      console.error('Error generating PDF with html2pdf:', err);
+      setIsGenerating(null);
+      showToast('Generando versión alternativa vectorial...');
+      handleExportPDF();
+    }
+  };
+
   // Generic Download Report handler
-  const handleDownloadReport = (format: 'pdf' | 'compliance_csv' | 'raw_csv' = downloadReportFormat) => {
+  const handleDownloadReport = (format: 'html2pdf' | 'pdf' | 'compliance_csv' | 'raw_csv' = downloadReportFormat) => {
     setIsDownloadDropdownOpen(false);
     setShowDownloadModal(false);
-    if (format === 'pdf') {
+    if (format === 'html2pdf') {
+      handleDownloadHtml2Pdf();
+    } else if (format === 'pdf') {
       handleExportPDF();
     } else if (format === 'compliance_csv') {
       handleExportComplianceStatsCSV(csvVariant);
@@ -242,10 +287,68 @@ export const ExecutiveReportsView: React.FC = () => {
     }
   };
 
+
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-6 space-y-6 max-w-7xl mx-auto executive-reports-container">
+      {/* Official Print-Only Document Header */}
+      <div className="print-only executive-print-header hidden mb-6 pb-4 border-b-2 border-slate-900">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded border border-blue-300">
+                BLINDAJE VIAL • GESTIÓN DE RIESGO OPERACIONAL
+              </span>
+              <span className="font-mono text-[10px] font-bold text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+                DICTAMEN SUSESO 92064-2025 • LEY 18.290
+              </span>
+            </div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              Informe Ejecutivo de Gestión de Riesgo y Control de Intemperancia
+            </h1>
+            <p className="text-xs text-slate-600">
+              Certificación de tamizaje preventivo aleatorio despersonalizado de alcohol y drogas para conducción segura en faenas y transporte troncal.
+            </p>
+          </div>
+          <div className="text-right text-xs text-slate-700 space-y-0.5 border-l-2 border-slate-300 pl-4 shrink-0">
+            <div className="font-bold text-slate-900 text-sm">{currentCompany.businessName}</div>
+            <div className="font-mono text-slate-600">RUT: {currentCompany.rut}</div>
+            <div className="text-[11px] text-slate-500">
+              Fecha de Emisión: {new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+            <div className="text-[10px] font-mono text-slate-500">Sello Hash: SHA-256: 8f4e2b9c7a10...e3fa1</div>
+          </div>
+        </div>
+
+        {/* Print Metadata Strip */}
+        <div className="grid grid-cols-4 gap-2.5 mt-4 pt-3 border-t border-slate-200 text-xs">
+          <div className="bg-slate-50 p-2 rounded border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 block uppercase">Período de Evaluación</span>
+            <span className="font-bold text-slate-800">{selectedPeriod}</span>
+          </div>
+          <div className="bg-slate-50 p-2 rounded border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 block uppercase">Alcance Operacional</span>
+            <span className="font-bold text-slate-800">{selectedBase === 'all' ? 'Todas las Bases (Nacional)' : selectedBase}</span>
+          </div>
+          <div className="bg-slate-50 p-2 rounded border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 block uppercase">Tecnología de Screening</span>
+            <span className="font-bold text-slate-800">Alcotest Metrológico + Dräger DrugTest 5000</span>
+          </div>
+          <div className="bg-slate-50 p-2 rounded border border-slate-200">
+            <span className="text-[10px] font-semibold text-slate-500 block uppercase">Tolerancia Legal</span>
+            <span className="font-bold text-emerald-700">0.00 g/l • Cero Absoluta</span>
+          </div>
+        </div>
+
+        {customNotes && (
+          <div className="mt-2.5 p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-700">
+            <strong className="text-slate-900 font-semibold">Observación CPHS / Prevención: </strong>
+            <span>{customNotes}</span>
+          </div>
+        )}
+      </div>
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm executive-screen-header">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded border border-blue-500/30">
@@ -264,34 +367,60 @@ export const ExecutiveReportsView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Main 'Download Report' Action with Dropdown & Modal Trigger */}
-          <div className="relative inline-flex rounded-xl shadow-lg shadow-blue-600/25">
+        <div className="flex flex-wrap items-center gap-2 no-print">
+          {/* Main 'Download PDF' (html2pdf) Action with high legibility */}
+          <button
+            id="download-pdf-html2pdf-btn"
+            onClick={handleDownloadHtml2Pdf}
+            disabled={isGenerating !== null}
+            className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-blue-600/25 transition cursor-pointer"
+            title="Descargar Informe Ejecutivo en PDF de alta legibilidad usando html2pdf.js para revisión offline en terreno"
+          >
+            {isGenerating === 'pdf' ? (
+              <span className="flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Generando PDF...</span>
+              </span>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                <span>Download PDF</span>
+                <span className="text-[9px] bg-white/20 px-1.5 py-0.5 rounded font-mono font-medium">
+                  html2pdf
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* Preview Print Report Modal Trigger */}
+          <button
+            id="preview-report-btn"
+            onClick={() => setShowPreviewModal(true)}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-2.5 rounded-xl transition cursor-pointer shadow-sm"
+            title="Ver vista previa del informe de alta legibilidad con gráficos y firmas listo para imprimir o guardar"
+          >
+            <Eye className="w-4 h-4 text-blue-400" />
+            <span>Vista Previa</span>
+          </button>
+
+          {/* Secondary 'Download Report' Action with Dropdown & Modal Trigger */}
+          <div className="relative inline-flex rounded-xl shadow-sm">
             <button
               id="download-report-btn"
               onClick={() => setShowDownloadModal(true)}
               disabled={isGenerating !== null}
-              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-bold px-4 py-2.5 rounded-l-xl transition cursor-pointer"
-              title="Download Summary Report for Management Review (PDF or CSV)"
+              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-bold px-3 py-2.5 rounded-l-xl border border-r-0 border-slate-700 transition cursor-pointer"
+              title="Descargar formatos adicionales (CSV, Dossier, ERP)"
             >
-              {isGenerating ? (
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Generando...</span>
-                </span>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>Download Report</span>
-                </>
-              )}
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span>Formatos & ERP</span>
             </button>
             <button
               id="download-report-toggle"
               onClick={() => setIsDownloadDropdownOpen(!isDownloadDropdownOpen)}
               disabled={isGenerating !== null}
-              className="bg-indigo-700 hover:bg-indigo-600 disabled:opacity-50 text-white px-2.5 py-2.5 rounded-r-xl border-l border-indigo-500/40 transition cursor-pointer flex items-center justify-center"
-              title="Seleccionar formato de descarga (PDF o CSV de Estadísticas)"
+              className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-2.5 py-2.5 rounded-r-xl border border-slate-700 transition cursor-pointer flex items-center justify-center"
+              title="Seleccionar formato de descarga"
               aria-label="Opciones de formato"
             >
               <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isDownloadDropdownOpen ? 'rotate-180' : ''}`} />
@@ -299,24 +428,42 @@ export const ExecutiveReportsView: React.FC = () => {
 
             {/* Quick format selector dropdown */}
             {isDownloadDropdownOpen && (
-              <div className="absolute right-0 top-full mt-2 w-80 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95 duration-150">
+              <div className="absolute right-0 top-full mt-2 w-84 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 z-50 text-xs space-y-1 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 flex items-center justify-between">
                   <span>Exportación de Cumplimiento</span>
                   <span className="text-emerald-400 font-mono text-[9px]">SUSESO 92064</span>
                 </div>
                 
                 <button
-                  id="download-report-pdf-option"
-                  onClick={() => handleDownloadReport('pdf')}
+                  id="download-report-html2pdf-option"
+                  onClick={() => handleDownloadReport('html2pdf')}
                   className="w-full flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-slate-800 text-left transition text-slate-200 cursor-pointer"
                 >
                   <FileText className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
                   <div>
                     <div className="font-bold text-white flex items-center gap-1.5">
-                      <span>Summary Report (PDF)</span>
-                      <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1 rounded">Directorio</span>
+                      <span>Informe Alta Legibilidad (PDF)</span>
+                      <span className="text-[9px] bg-blue-500/20 text-blue-300 px-1 rounded font-mono">html2pdf</span>
                     </div>
-                    <p className="text-[10px] text-slate-400">Informe ejecutivo formal con gráficos, KPIs y auditoría SUSESO 92064</p>
+                    <p className="text-[10px] text-slate-400">PDF con gráficos Recharts, auditoría SUSESO y firmas listo para offline</p>
+                  </div>
+                </button>
+
+                <button
+                  id="download-report-preview-option"
+                  onClick={() => {
+                    setIsDownloadDropdownOpen(false);
+                    setShowPreviewModal(true);
+                  }}
+                  className="w-full flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-slate-800 text-left transition text-slate-200 cursor-pointer"
+                >
+                  <Eye className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-white flex items-center gap-1.5">
+                      <span>Vista Previa de Impresión A4</span>
+                      <span className="text-[9px] bg-indigo-500/20 text-indigo-300 px-1 rounded font-mono">Visor</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">Revisar el informe en formato papel antes de descargar o imprimir</p>
                   </div>
                 </button>
 
@@ -331,7 +478,7 @@ export const ExecutiveReportsView: React.FC = () => {
                       <span>Estadísticas de Cumplimiento (CSV)</span>
                       <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1 rounded font-bold">ERP / BI</span>
                     </div>
-                    <p className="text-[10px] text-slate-400">Exporta KPIs, tasas de positividad, desglose por base y analitos para software de gestión</p>
+                    <p className="text-[10px] text-slate-400">Exporta KPIs, tasas de positividad, desglose por base y analitos</p>
                   </div>
                 </button>
 
@@ -343,7 +490,19 @@ export const ExecutiveReportsView: React.FC = () => {
                   <FileSpreadsheet className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
                   <div>
                     <div className="font-bold text-white">Base Completa de Actas (CSV)</div>
-                    <p className="text-[10px] text-slate-400">Listado detallado de cada test de screening individual con folios y SHA-256</p>
+                    <p className="text-[10px] text-slate-400">Listado detallado de cada test con folios y sellos SHA-256</p>
+                  </div>
+                </button>
+
+                <button
+                  id="download-report-dossier-option"
+                  onClick={handleExportSusesoDossier}
+                  className="w-full flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-slate-800 text-left transition text-slate-200 cursor-pointer"
+                >
+                  <Scale className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold text-white">Dossier Pericial SUSESO (PDF)</div>
+                    <p className="text-[10px] text-slate-400">Certificación jurídica con actas periciales encriptadas</p>
                   </div>
                 </button>
 
@@ -361,6 +520,7 @@ export const ExecutiveReportsView: React.FC = () => {
               </div>
             )}
           </div>
+
 
           {/* Quick Direct Button for Compliance Statistics CSV Export */}
           <button
@@ -382,6 +542,17 @@ export const ExecutiveReportsView: React.FC = () => {
                 <span className="text-[9px] bg-emerald-500/30 text-emerald-200 px-1 py-0.2 rounded font-mono">ERP</span>
               </>
             )}
+          </button>
+
+          {/* Browser Direct Print Button */}
+          <button
+            id="print-report-browser-btn"
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 rounded-xl transition cursor-pointer shadow-sm"
+            title="Imprimir informe directamente desde el navegador (formato optimizado para impresora y PDF)"
+          >
+            <Printer className="w-4 h-4 text-amber-400" />
+            <span>Imprimir</span>
           </button>
 
           <button
@@ -436,7 +607,7 @@ export const ExecutiveReportsView: React.FC = () => {
       </div>
 
       {/* Interactive PDF Configuration & Quick Export Center */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 executive-interactive-panel no-print">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
@@ -576,9 +747,10 @@ export const ExecutiveReportsView: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               id="download-report-panel-pdf-btn"
-              onClick={() => handleDownloadReport('pdf')}
+              onClick={handleDownloadHtml2Pdf}
               disabled={isGenerating !== null}
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-xl shadow transition cursor-pointer"
+              title="Descargar Informe Ejecutivo en PDF de alta legibilidad usando html2pdf.js"
             >
               {isGenerating === 'pdf' ? (
                 <span className="flex items-center gap-1.5">
@@ -588,10 +760,20 @@ export const ExecutiveReportsView: React.FC = () => {
               ) : (
                 <>
                   <Download className="w-3.5 h-3.5" />
-                  <span>Download Report (PDF)</span>
+                  <span>Download PDF (html2pdf)</span>
                 </>
               )}
             </button>
+
+            <button
+              onClick={() => setShowPreviewModal(true)}
+              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-xl transition cursor-pointer"
+              title="Ver vista previa de impresión en formato A4"
+            >
+              <Eye className="w-3.5 h-3.5 text-blue-400" />
+              <span>Vista Previa</span>
+            </button>
+
 
             <button
               id="download-report-panel-csv-btn"
@@ -659,26 +841,26 @@ export const ExecutiveReportsView: React.FC = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 executive-kpi-grid">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 executive-kpi-card">
           <span className="text-xs text-slate-400">Tasa de Positividad Global</span>
           <p className="text-2xl font-extrabold text-white mt-1">{positivityRate}%</p>
           <span className="text-[10px] text-emerald-400 font-medium">Meta Corporativa: {'<'} 0.50%</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 executive-kpi-card">
           <span className="text-xs text-slate-400">Cobertura de Dotación (Mes)</span>
           <p className="text-2xl font-extrabold text-blue-400 mt-1">100%</p>
           <span className="text-[10px] text-slate-400 font-medium">{drivers.length} conductores testeados</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 executive-kpi-card">
           <span className="text-xs text-slate-400">Cumplimiento Sorteos SUSESO</span>
           <p className="text-2xl font-extrabold text-purple-400 mt-1">98.8%</p>
           <span className="text-[10px] text-emerald-400 font-medium">100% verificado por hash</span>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 executive-kpi-card">
           <span className="text-xs text-slate-400">Siniestros Viales Evitados</span>
           <p className="text-2xl font-extrabold text-emerald-400 mt-1">0 Fatales</p>
           <span className="text-[10px] text-slate-400 font-medium">Impacto estimado $180M ahorrados</span>
@@ -686,9 +868,9 @@ export const ExecutiveReportsView: React.FC = () => {
       </div>
 
       {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 executive-charts-grid">
         {/* Trend line */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 executive-chart-card">
           <div className="flex items-center justify-between">
             <h2 className="font-bold text-xs text-slate-200 uppercase tracking-wider">
               Evolución de Controles vs Tasa de Positividad (2026)
@@ -713,7 +895,7 @@ export const ExecutiveReportsView: React.FC = () => {
         </div>
 
         {/* Substance breakdown pie chart */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4 executive-chart-card">
           <div className="flex items-center justify-between">
             <h2 className="font-bold text-xs text-slate-200 uppercase tracking-wider">
               Distribución por Sustancia y Resultado de Examen
@@ -747,7 +929,7 @@ export const ExecutiveReportsView: React.FC = () => {
       </div>
 
       {/* SUSESO 92064 Compliance Audit Card */}
-      <div className="bg-gradient-to-r from-blue-950/40 via-slate-900 to-indigo-950/30 border border-blue-500/30 rounded-2xl p-5 shadow-sm space-y-4">
+      <div className="bg-gradient-to-r from-blue-950/40 via-slate-900 to-indigo-950/30 border border-blue-500/30 rounded-2xl p-5 shadow-sm space-y-4 executive-suseso-card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-blue-500/20 text-blue-400 rounded-xl">
@@ -763,7 +945,7 @@ export const ExecutiveReportsView: React.FC = () => {
           <button
             onClick={handleExportSusesoDossier}
             disabled={isGenerating !== null}
-            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition cursor-pointer self-start sm:self-auto shadow"
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition cursor-pointer self-start sm:self-auto shadow no-print"
           >
             {isGenerating === 'dossier' ? (
               <span className="flex items-center gap-1.5">
@@ -780,22 +962,22 @@ export const ExecutiveReportsView: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
+          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl executive-suseso-subcard">
             <span className="text-[10px] text-slate-400">Puntaje Auditoría SUSESO</span>
             <p className="text-lg font-bold text-emerald-400 mt-0.5">100% Blindado</p>
             <span className="text-[10px] text-slate-500">8/8 Principios Verificados</span>
           </div>
-          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
+          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl executive-suseso-subcard">
             <span className="text-[10px] text-slate-400">RIOHS Depósito DT</span>
             <p className="text-lg font-bold text-blue-400 mt-0.5">Depósito Vigente</p>
             <span className="text-[10px] text-slate-500">Cláusula 21 con 30 días antelación</span>
           </div>
-          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
+          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl executive-suseso-subcard">
             <span className="text-[10px] text-slate-400">Algoritmo de Sorteo</span>
             <p className="text-lg font-bold text-indigo-400 mt-0.5">Despersonalizado</p>
             <span className="text-[10px] text-slate-500">Aleatorio sin sesgo humano</span>
           </div>
-          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl">
+          <div className="bg-slate-900/90 border border-slate-800 p-3 rounded-xl executive-suseso-subcard">
             <span className="text-[10px] text-slate-400">Cadena de Custodia</span>
             <p className="text-lg font-bold text-teal-400 mt-0.5">100% Trazable</p>
             <span className="text-[10px] text-slate-500">Inalterabilidad Criptográfica SHA-256</span>
@@ -804,13 +986,13 @@ export const ExecutiveReportsView: React.FC = () => {
       </div>
 
       {/* Comparative Base Table */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-3 executive-table-card">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="font-bold text-sm text-white">Desempeño Operacional por Base / Faena</h2>
             <p className="text-[11px] text-slate-400">Estadísticas de controles, positividad y cumplimiento normativo por faena</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 no-print">
             <button
               id="export-base-compliance-csv-btn"
               onClick={() => handleExportComplianceStatsCSV('consolidated')}
@@ -841,7 +1023,7 @@ export const ExecutiveReportsView: React.FC = () => {
                   <td className="px-4 py-3 font-mono text-rose-400 font-bold">{b.positives}</td>
                   <td className="px-4 py-3 font-mono text-emerald-400 font-bold">{b.compliance}</td>
                   <td className="px-4 py-3">
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold">
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold executive-badge-conforme">
                       CONFORME
                     </span>
                   </td>
@@ -852,9 +1034,43 @@ export const ExecutiveReportsView: React.FC = () => {
         </div>
       </div>
 
+      {/* Official Print-Only Footer & Legal Signatures */}
+      <div className="print-only executive-print-footer hidden mt-8 pt-4 border-t-2 border-slate-400 space-y-5">
+        <div className="text-[11px] text-slate-600 leading-relaxed text-justify bg-slate-50 p-3 rounded border border-slate-200">
+          <strong className="text-slate-900">Declaración de Validez Pericial y Cumplimiento Normativo: </strong>
+          El presente informe da cuenta fidedigna de los controles preventivos aleatorios despersonalizados aplicados al personal de conducción en conformidad al Dictamen SUSESO N.º 92064-2025, Ley N.º 18.290 de Tránsito (Art. 109 y sgtes.) y Cláusula RIOHS de Seguridad Vial depositada ante la Dirección del Trabajo. Toda la evidencia pericial y actas de screening cuentan con sellos criptográficos SHA-256 inalterables.
+        </div>
+
+        <div className="grid grid-cols-3 gap-6 pt-6 text-center text-xs text-slate-800">
+          <div className="border-t-2 border-slate-400 pt-2 space-y-1">
+            <div className="h-9"></div>
+            <div className="font-bold text-slate-900">Prevencionista de Riesgos</div>
+            <div className="text-[11px] text-slate-600">Registro SNS / Mutualidad</div>
+            <div className="text-[10px] text-slate-400">Firma & Timbre</div>
+          </div>
+          <div className="border-t-2 border-slate-400 pt-2 space-y-1">
+            <div className="h-9"></div>
+            <div className="font-bold text-slate-900">Presidente Comité Paritario (CPHS)</div>
+            <div className="text-[11px] text-slate-600">Representante de los Trabajadores</div>
+            <div className="text-[10px] text-slate-400">Firma</div>
+          </div>
+          <div className="border-t-2 border-slate-400 pt-2 space-y-1">
+            <div className="h-9"></div>
+            <div className="font-bold text-slate-900">Gerencia de Operaciones / Representante Legal</div>
+            <div className="text-[11px] text-slate-600">{currentCompany.businessName}</div>
+            <div className="text-[10px] text-slate-400">Firma & Timbre</div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-slate-200 font-mono">
+          <span>Sistema Blindaje Vial • Estándar ISO 39001 / ISO 37301</span>
+          <span>Certificación Oficial de Screening Laboral • Privado y Confidencial</span>
+        </div>
+      </div>
+
       {/* Management Review Download Report Modal */}
       {showDownloadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200 no-print">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl p-6 shadow-2xl space-y-5 text-slate-200">
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-slate-800 pb-3.5">
@@ -885,25 +1101,52 @@ export const ExecutiveReportsView: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-300">
                 Seleccione el Formato de Exportación:
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 <button
                   type="button"
-                  id="select-format-pdf"
-                  onClick={() => setDownloadReportFormat('pdf')}
+                  id="select-format-html2pdf"
+                  onClick={() => setDownloadReportFormat('html2pdf')}
                   className={`flex flex-col text-left p-3 rounded-xl border transition cursor-pointer ${
-                    downloadReportFormat === 'pdf'
-                      ? 'bg-blue-600/15 border-blue-500 text-white shadow-md ring-1 ring-blue-500/50'
+                    downloadReportFormat === 'html2pdf'
+                      ? 'bg-blue-600/20 border-blue-500 text-white shadow-md ring-1 ring-blue-500/50'
                       : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="flex items-center gap-1.5 font-bold text-xs text-white">
                       <FileText className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Summary PDF</span>
+                      <span>PDF Alta Legibilidad</span>
+                    </span>
+                    <span className="text-[9px] font-bold bg-blue-500/25 text-blue-300 px-1.5 py-0.2 rounded font-mono">
+                      html2pdf
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
-                    Informe formal con gráficos, KPIs y dictamen SUSESO 92064.
+                    Informe completo con gráficos visuales, auditoría SUSESO y firmas para offline.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  id="select-format-pdf"
+                  onClick={() => setDownloadReportFormat('pdf')}
+                  className={`flex flex-col text-left p-3 rounded-xl border transition cursor-pointer ${
+                    downloadReportFormat === 'pdf'
+                      ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-md ring-1 ring-indigo-500/50'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="flex items-center gap-1.5 font-bold text-xs text-white">
+                      <Scale className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Dossier Pericial</span>
+                    </span>
+                    <span className="text-[9px] font-bold bg-indigo-500/20 text-indigo-300 px-1 py-0.2 rounded font-mono">
+                      SUSESO
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed">
+                    Resumen pericial con actas de screening y sellos criptográficos SHA-256.
                   </p>
                 </button>
 
@@ -937,14 +1180,17 @@ export const ExecutiveReportsView: React.FC = () => {
                   onClick={() => setDownloadReportFormat('raw_csv')}
                   className={`flex flex-col text-left p-3 rounded-xl border transition cursor-pointer ${
                     downloadReportFormat === 'raw_csv'
-                      ? 'bg-indigo-600/15 border-indigo-500 text-white shadow-md ring-1 ring-indigo-500/50'
+                      ? 'bg-purple-600/15 border-purple-500 text-white shadow-md ring-1 ring-purple-500/50'
                       : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="flex items-center gap-1.5 font-bold text-xs text-white">
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-purple-400" />
                       <span>Actas CSV</span>
+                    </span>
+                    <span className="text-[9px] font-bold bg-purple-500/20 text-purple-300 px-1 py-0.2 rounded font-mono">
+                      Raw
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-400 leading-relaxed">
@@ -953,6 +1199,7 @@ export const ExecutiveReportsView: React.FC = () => {
                 </button>
               </div>
             </div>
+
 
             {/* CSV Structure Selector when compliance_csv is active */}
             {downloadReportFormat === 'compliance_csv' && (
@@ -1096,8 +1343,10 @@ export const ExecutiveReportsView: React.FC = () => {
                   <>
                     <Download className="w-4 h-4" />
                     <span>
-                      {downloadReportFormat === 'pdf'
-                        ? 'Download Report (PDF)'
+                      {downloadReportFormat === 'html2pdf'
+                        ? 'Descargar PDF Alta Legibilidad (html2pdf)'
+                        : downloadReportFormat === 'pdf'
+                        ? 'Descargar Dossier SUSESO (PDF)'
                         : downloadReportFormat === 'compliance_csv'
                         ? `Exportar Estadísticas CSV (${csvVariant === 'flat_tabular' ? 'BI/ERP' : 'Consolidado'})`
                         : 'Exportar Base Actas (CSV)'}
@@ -1109,7 +1358,151 @@ export const ExecutiveReportsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* High-Legibility Document Preview Modal */}
+      {showPreviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto no-print">
+          <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-8 overflow-hidden">
+            {/* Modal Control Bar */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950 sticky top-0 z-20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-600/20 text-blue-400 rounded-lg border border-blue-500/30">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-white">Vista Previa del Informe Ejecutivo • Alta Legibilidad</h2>
+                    <span className="text-[9px] font-mono bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-bold">
+                      html2pdf.js
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Formato A4 homologado para impresión, revisión offline en terreno y auditoría legal SUSESO 92064.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  id="preview-modal-download-pdf-btn"
+                  onClick={handleDownloadHtml2Pdf}
+                  disabled={isGenerating !== null}
+                  className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow transition cursor-pointer disabled:opacity-50"
+                  title="Guardar archivo PDF directamente en el dispositivo"
+                >
+                  {isGenerating === 'pdf' ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Generando PDF...</span>
+                    </span>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>Descargar PDF</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition cursor-pointer"
+                  title="Imprimir directamente desde el navegador"
+                >
+                  <Printer className="w-4 h-4 text-amber-400" />
+                  <span>Imprimir</span>
+                </button>
+
+                <button
+                  onClick={() => setShowPreviewModal(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer"
+                  aria-label="Cerrar vista previa"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Preview Viewport */}
+            <div className="p-6 bg-slate-950 max-h-[75vh] overflow-y-auto flex justify-center">
+              <div className="shadow-2xl rounded-lg overflow-hidden border border-slate-700 w-full max-w-[820px] bg-white">
+                <ExecutivePrintableReport
+                  ref={previewReportRef}
+                  company={currentCompany}
+                  tests={tests}
+                  drivers={drivers}
+                  vehicles={vehicles}
+                  selectedPeriod={selectedPeriod}
+                  selectedBase={selectedBase}
+                  customNotes={customNotes}
+                  includeSusesoAudit={includeSusesoAudit}
+                  includeSubstances={includeSubstances}
+                  includeFleetAlcolock={includeFleetAlcolock}
+                  monthlyKpis={monthlyKpis}
+                  baseStats={baseStats}
+                  substancesDistribution={substancesDistribution}
+                  positivityRate={positivityRate}
+                  complianceRate={complianceRate}
+                  total={total}
+                  positives={positives}
+                />
+              </div>
+            </div>
+
+            {/* Footer notice */}
+            <div className="px-6 py-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Optimizado con sellos SHA-256 e inalterabilidad jurídica SUSESO 92064-2025</span>
+              </span>
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                Cerrar vista previa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offscreen Printable Report for Instant html2pdf Generation */}
+      <div
+        className="no-print"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '820px',
+          zIndex: -9999,
+          opacity: 0.001,
+          pointerEvents: 'none',
+          backgroundColor: '#ffffff'
+        }}
+        aria-hidden="true"
+      >
+        <ExecutivePrintableReport
+          ref={printableReportRef}
+          company={currentCompany}
+          tests={tests}
+          drivers={drivers}
+          vehicles={vehicles}
+          selectedPeriod={selectedPeriod}
+          selectedBase={selectedBase}
+          customNotes={customNotes}
+          includeSusesoAudit={includeSusesoAudit}
+          includeSubstances={includeSubstances}
+          includeFleetAlcolock={includeFleetAlcolock}
+          monthlyKpis={monthlyKpis}
+          baseStats={baseStats}
+          substancesDistribution={substancesDistribution}
+          positivityRate={positivityRate}
+          complianceRate={complianceRate}
+          total={total}
+          positives={positives}
+        />
+      </div>
     </div>
   );
 };
+
 

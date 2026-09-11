@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Driver, Vehicle } from '../types';
 import { DriverRiskRadar } from './DriverRiskRadar';
+import { DriverCredentialModal } from './DriverCredentialModal';
+import { DriverQRScannerModal } from './DriverQRScannerModal';
 import {
   Users,
   Truck,
@@ -17,7 +19,8 @@ import {
   Gauge,
   X,
   Radar,
-  Sparkles
+  Sparkles,
+  QrCode
 } from 'lucide-react';
 
 export const DriversAndFleetView: React.FC = () => {
@@ -51,6 +54,8 @@ export const DriversAndFleetView: React.FC = () => {
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
   const [lockModalDriver, setLockModalDriver] = useState<Driver | null>(null);
   const [lockReason, setLockReason] = useState('');
+  const [selectedCredentialDriver, setSelectedCredentialDriver] = useState<Driver | null>(null);
+  const [isQRScannerModalOpen, setIsQRScannerModalOpen] = useState(false);
 
   // Form State for new driver
   const [newDriver, setNewDriver] = useState({
@@ -162,6 +167,17 @@ export const DriversAndFleetView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {activeTab === 'drivers' && (
+            <button
+              onClick={() => setIsQRScannerModalOpen(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 rounded-xl shadow transition cursor-pointer"
+              title="Escanear con cámara o verificar QR de credencial de chofer"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Escanear Credencial Garita</span>
+            </button>
+          )}
+
           {activeTab === 'drivers' ? (
             <button
               onClick={() => setIsDriverModalOpen(true)}
@@ -367,25 +383,36 @@ export const DriversAndFleetView: React.FC = () => {
                   </div>
 
                   {/* Card Action footer */}
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => {
-                        setSelectedRadarDriverId(driver.id);
-                        setShowRadarSection(true);
-                        setTimeout(() => {
-                          document.getElementById('driver-risk-radar-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 50);
-                      }}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                        isSelectedForRadar
-                          ? 'bg-blue-600 text-white shadow'
-                          : 'bg-slate-800/90 hover:bg-slate-800 text-blue-300 border border-blue-500/30'
-                      }`}
-                      title="Analizar perfil de riesgo en gráfico de radar"
-                    >
-                      <Radar className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Radar de Riesgo</span>
-                    </button>
+                  <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setSelectedCredentialDriver(driver)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                        title="Ver e imprimir credencial oficial plastificada con QR"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Credencial QR</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedRadarDriverId(driver.id);
+                          setShowRadarSection(true);
+                          setTimeout(() => {
+                            document.getElementById('driver-risk-radar-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }, 50);
+                        }}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                          isSelectedForRadar
+                            ? 'bg-blue-600 text-white shadow'
+                            : 'bg-slate-800/90 hover:bg-slate-800 text-blue-300 border border-blue-500/30'
+                        }`}
+                        title="Analizar perfil de riesgo en gráfico de radar"
+                      >
+                        <Radar className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Radar</span>
+                      </button>
+                    </div>
 
                     <button
                       onClick={() => {
@@ -635,6 +662,27 @@ export const DriversAndFleetView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Driver Credential Modal */}
+      {selectedCredentialDriver && (
+        <DriverCredentialModal
+          driver={selectedCredentialDriver}
+          isOpen={true}
+          onClose={() => setSelectedCredentialDriver(null)}
+          onScanThisDriver={() => {
+            setSelectedCredentialDriver(null);
+            setIsQRScannerModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Driver QR Scanner Modal */}
+      {isQRScannerModalOpen && (
+        <DriverQRScannerModal
+          isOpen={isQRScannerModalOpen}
+          onClose={() => setIsQRScannerModalOpen(false)}
+        />
       )}
     </div>
   );

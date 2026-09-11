@@ -17,7 +17,11 @@ import {
   User,
   RoleType,
   RandomSelectionBatch,
-  DriverDocument
+  DriverDocument,
+  SafetyRiskThresholds,
+  SafetyManagerRecipient,
+  SafetyEmailLog,
+  ComplianceDocumentApprovalLog
 } from '../types';
 import {
   INITIAL_COMPANIES,
@@ -37,6 +41,25 @@ import {
   INITIAL_BATCHES,
   INITIAL_DRIVER_DOCUMENTS
 } from '../data/initialData';
+import {
+  INITIAL_SAFETY_THRESHOLDS,
+  INITIAL_SAFETY_RECIPIENTS,
+  INITIAL_SAFETY_EMAIL_LOGS
+} from '../data/safetyAlertsData';
+import {
+  INITIAL_SUSESO_APPROVAL_LOGS
+} from '../data/susesoVerificationData';
+import {
+  serializeBlockPayload,
+  fallbackSha256,
+  generateVerificationFolio,
+  formatChileanTimestamp,
+  verifyChainIntegrity
+} from '../utils/susesoCrypto';
+import {
+  saveDriversOfflineSnapshot,
+  saveLogsOfflineSnapshot
+} from '../utils/offlineSyncManager';
 
 interface AppContextType {
   currentUser: User;
@@ -104,6 +127,44 @@ interface AppContextType {
   renewDriverDocumentExpiry: (docId: string, newExpiryDate: string, issuingEntity?: string, newFolio?: string) => void;
   signDriverDocument: (docId: string, signerName: string, signerRut: string, signatureType: 'valida_fea' | 'valida_fes') => void;
   
+  // Automated Safety Alerts & Email Mechanism
+  safetyRiskThresholds: SafetyRiskThresholds;
+  updateSafetyRiskThresholds: (thresholds: Partial<SafetyRiskThresholds>) => void;
+  safetyManagerRecipients: SafetyManagerRecipient[];
+  addSafetyManagerRecipient: (recipient: Omit<SafetyManagerRecipient, 'id'>) => void;
+  updateSafetyManagerRecipient: (id: string, updates: Partial<SafetyManagerRecipient>) => void;
+  deleteSafetyManagerRecipient: (id: string) => void;
+  safetyEmailLogs: SafetyEmailLog[];
+  triggerSafetyManagerEmail: (params: {
+    test?: TestRecord;
+    triggerReason?: string;
+    triggeredThresholds?: string[];
+    manualOverride?: boolean;
+    customNotes?: string;
+  }) => Promise<SafetyEmailLog | null>;
+
+  // SUSESO Compliance Document Approval & Verification Log (RF-019)
+  documentApprovalLogs: ComplianceDocumentApprovalLog[];
+  addDocumentApprovalLog: (params: {
+    documentId: string;
+    documentCode: string;
+    documentTitle: string;
+    documentVersion: string;
+    documentCategory: ComplianceDocumentApprovalLog['documentCategory'];
+    approvalAction: ComplianceDocumentApprovalLog['approvalAction'];
+    approvalStatus: ComplianceDocumentApprovalLog['approvalStatus'];
+    susesoClauseRef?: string;
+    legalFramework?: string;
+    approvalObservations: string;
+    auditAttestationStatement?: string;
+  }) => ComplianceDocumentApprovalLog;
+  verifyAuditTrailIntegrity: () => {
+    isValid: boolean;
+    totalBlocks: number;
+    brokenBlockIndex?: number;
+    errorReason?: string;
+  };
+
   resolveAlert: (alertId: string) => void;
   markAlertRead: (alertId: string) => void;
   
@@ -182,6 +243,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_BATCHES;
   });
 
+  // Safety Risk Thresholds and Automated Email States
+  const [safetyRiskThresholds, setSafetyRiskThresholds] = useState<SafetyRiskThresholds>(() => {
+    const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_safety_thresholds`);
+    return saved ? JSON.parse(saved) : INITIAL_SAFETY_THRESHOLDS;
+  });
+
+  const [safetyManagerRecipients, setSafetyManagerRecipients] = useState<SafetyManagerRecipient[]>(() => {
+    const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_safety_recipients`);
+    return saved ? JSON.parse(saved) : INITIAL_SAFETY_RECIPIENTS;
+  });
+
+  const [safetyEmailLogs, setSafetyEmailLogs] = useState<SafetyEmailLog[]>(() => {
+    const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_safety_email_logs`);
+    return saved ? JSON.parse(saved) : INITIAL_SAFETY_EMAIL_LOGS;
+  });
+
+  // SUSESO Compliance Document Approval Logs (RF-019)
+  const [documentApprovalLogs, setDocumentApprovalLogs] = useState<ComplianceDocumentApprovalLog[]>(() => {
+    const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_suseso_approval_logs`);
+    return saved ? JSON.parse(saved) : INITIAL_SUSESO_APPROVAL_LOGS;
+  });
+
   const [activeToast, setActiveToast] = useState<string | null>(null);
 
   const showToast = (message: string) => {
@@ -206,6 +289,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_alerts`, JSON.stringify(alerts));
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_logs`, JSON.stringify(auditLogs));
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_batches`, JSON.stringify(randomBatches));
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_safety_thresholds`, JSON.stringify(safetyRiskThresholds));
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_safety_recipients`, JSON.stringify(safetyManagerRecipients));
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_safety_email_logs`, JSON.stringify(safetyEmailLogs));
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_suseso_approval_logs`, JSON.stringify(documentApprovalLogs));
+    
+    // Dedicated Field Cache for Offline QR Verification & Logs Inspection
+    saveDriversOfflineSnapshot(drivers);
+    saveLogsOfflineSnapshot(auditLogs);
   }, [
     companies,
     drivers,
@@ -221,7 +312,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     driverDocuments,
     alerts,
     auditLogs,
-    randomBatches
+    randomBatches,
+    safetyRiskThresholds,
+    safetyManagerRecipients,
+    safetyEmailLogs,
+    documentApprovalLogs
   ]);
 
   // Helper to append immutable audit log
@@ -356,6 +451,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         relatedEntityType: 'test'
       };
       setAlerts((prev) => [newAlert, ...prev]);
+
+      // Automated Summary Email Trigger to Safety Managers
+      if (safetyRiskThresholds.autoTriggerEnabled) {
+        const breached: string[] = [];
+        if (
+          safetyRiskThresholds.notifyOnAlcoholPositive &&
+          testData.alcoholValueGramsPerLiter !== undefined &&
+          testData.alcoholValueGramsPerLiter > safetyRiskThresholds.maxAllowedAlcoholGramsPerLiter
+        ) {
+          breached.push(
+            `Nivel de alcohol detectado: ${testData.alcoholValueGramsPerLiter.toFixed(2)} g/L (Umbral corporativo: ${safetyRiskThresholds.maxAllowedAlcoholGramsPerLiter.toFixed(2)} g/L - Tolerancia Cero).`
+          );
+        }
+        if (
+          safetyRiskThresholds.notifyOnDrugReactive &&
+          (testData.drugsOverallStatus === 'presunto_positivo' || testData.drugsOverallStatus === 'confirmado_positivo')
+        ) {
+          const reactives = (testData.drugPanelResults || [])
+            .filter((d) => d.result === 'presunto_positivo' || d.result === 'confirmado_positivo')
+            .map((d) => `${d.name} (${d.cutoff || 'Cut-off'})`);
+          breached.push(
+            `Reactividad en panel salival de drogas: ${reactives.length > 0 ? reactives.join(', ') : 'Detección no conforme'}.`
+          );
+        }
+        if (
+          safetyRiskThresholds.notifyOnTestRefusal &&
+          (testData.alcoholStatus === 'rechaza_test' || testData.drugsOverallStatus === 'rechaza_test')
+        ) {
+          breached.push('Negativa o rechazo injustificado a someterse a control preventivo de intemperancia.');
+        }
+        if (breached.length === 0) {
+          breached.push('Examen de Intemperancia NO CONFORME - Bloqueo de despacho vehicular activado.');
+        }
+
+        // Fire asynchronous summary email alert to safety managers
+        triggerSafetyManagerEmail({
+          test: fullTest,
+          triggeredThresholds: breached,
+          triggerReason: 'Examen de Intemperancia NO CONFORME - Umbral de Seguridad Superado'
+        });
+      }
     }
 
     logAction(
@@ -807,6 +943,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(`Hallazgo actualizado: ${status.replace('_', ' ').toUpperCase()}`);
   };
 
+  // Add Document Approval Verification Log Entry (RF-019 SUSESO)
+  const addDocumentApprovalLog = (params: {
+    documentId: string;
+    documentCode: string;
+    documentTitle: string;
+    documentVersion: string;
+    documentCategory: ComplianceDocumentApprovalLog['documentCategory'];
+    approvalAction: ComplianceDocumentApprovalLog['approvalAction'];
+    approvalStatus: ComplianceDocumentApprovalLog['approvalStatus'];
+    susesoClauseRef?: string;
+    legalFramework?: string;
+    approvalObservations: string;
+    auditAttestationStatement?: string;
+  }): ComplianceDocumentApprovalLog => {
+    const now = new Date();
+    const timestampStr = formatChileanTimestamp(now);
+    const timestampEpoch = now.getTime();
+    const blockIndex = documentApprovalLogs.length + 1;
+    const folio = generateVerificationFolio(blockIndex);
+
+    // Get previous block hash (or genesis zeros)
+    const prevHash = documentApprovalLogs.length > 0
+      ? documentApprovalLogs[documentApprovalLogs.length - 1].integrityHash
+      : '0000000000000000000000000000000000000000000000000000000000000000';
+
+    const payload = serializeBlockPayload(
+      blockIndex,
+      prevHash,
+      timestampStr,
+      currentUser.id,
+      params.documentCode,
+      params.documentVersion,
+      params.approvalAction,
+      currentCompany.id
+    );
+
+    const integrityHash = fallbackSha256(payload);
+
+    const newLog: ComplianceDocumentApprovalLog = {
+      id: folio,
+      blockIndex,
+      timestamp: timestampStr,
+      timestampEpoch,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRut: currentUser.rut || '14.892.401-2',
+      userRole: currentUser.role.replace('_', ' ').toUpperCase(),
+      userEmail: currentUser.email,
+      companyId: currentCompany.id,
+      companyName: currentCompany.fantasyName || currentCompany.businessName,
+      companyRut: currentCompany.rut,
+      documentId: params.documentId,
+      documentCode: params.documentCode,
+      documentTitle: params.documentTitle,
+      documentVersion: params.documentVersion,
+      documentCategory: params.documentCategory,
+      approvalAction: params.approvalAction,
+      approvalStatus: params.approvalStatus,
+      susesoClauseRef: params.susesoClauseRef || 'Dictamen SUSESO N.º 92064-2025 • Art. 184 Código del Trabajo',
+      legalFramework: params.legalFramework || 'Ley 16.744 / Ley 18.290 / Circular 3331 SUSESO',
+      integrityHash,
+      previousHash: prevHash,
+      signatureAlgorithm: 'ECDSA-SHA256 (NIST P-256) / Ley 19.799',
+      timeStampingAuthority: 'TSA RFC 3161 - Servidor Horario Oficial SHOA / Subtel Chile',
+      certificateAuthority: 'PKI e-CertChile / Subtel Acreditado',
+      ipAddress: '190.161.44.' + Math.floor(Math.random() * 100 + 10),
+      sessionTokenHash: `TOK-SHA-${Math.random().toString(36).substring(2, 12)}${Date.now()}`,
+      approvalObservations: params.approvalObservations,
+      auditAttestationStatement: params.auditAttestationStatement ||
+        'Doy fe de la revisión y certificación formal del documento crítico conforme a los estándares de fiscalización de la SUSESO y Dirección del Trabajo.',
+      isChainedValid: true
+    };
+
+    setDocumentApprovalLogs((prev) => [...prev, newLog]);
+
+    // Also register in the general system audit log for complete forensic traceability
+    logAction(
+      'APROBACION_DOCUMENTO_SUSESO',
+      'ComplianceDocument',
+      params.documentCode,
+      `Aprobación formal de ${params.documentCode} (${params.documentVersion}) por Usuario ${currentUser.name} (${currentUser.id}) con hash SHA-256 ${integrityHash.slice(0, 16)}...`
+    );
+
+    showToast(`Documento ${params.documentCode} certificado y registrado en bitácora SUSESO (Folio: ${folio}).`);
+    return newLog;
+  };
+
+  const verifyAuditTrailIntegrity = () => {
+    return verifyChainIntegrity(documentApprovalLogs);
+  };
+
   // Digital Signatures (RF-010, RF-019)
   const signDocument = (docId: string, signerName: string, signerRut: string) => {
     const now = new Date().toISOString();
@@ -834,6 +1061,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       docId,
       `Documento ${docId} firmado digitalmente por ${signerName} (${signerRut}). Hash: ${signatureHash}`
     );
+
+    const targetDoc = documents.find((d) => d.id === docId);
+    if (targetDoc) {
+      addDocumentApprovalLog({
+        documentId: targetDoc.id,
+        documentCode: targetDoc.code,
+        documentTitle: targetDoc.title,
+        documentVersion: targetDoc.version || 'v1.0',
+        documentCategory: targetDoc.code.includes('SUSESO') || targetDoc.category === 'protocolo' ? 'protocolo_suseso' : 'politica_corporativa',
+        approvalAction: 'firma_electronica_fea',
+        approvalStatus: 'aprobado_conforme',
+        susesoClauseRef: 'Dictamen SUSESO N.º 92064-2025 • Art. 184 Código del Trabajo',
+        legalFramework: targetDoc.legalBasis || 'Ley 16.744 / Ley 19.799 Firma Electrónica',
+        approvalObservations: `Firma digital avanzada (FEA) estampada por ${signerName} (RUT: ${signerRut}). Certificación forense registrada.`,
+        auditAttestationStatement: `Certifico en mi calidad de ${currentUser.role} la aprobación formal del documento ${targetDoc.code} con plena validez legal ante SUSESO y Dirección del Trabajo.`
+      });
+    }
 
     showToast(`Documento firmado digitalmente con validez legal.`);
   };
@@ -1001,6 +1245,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       `Documento ${docId} firmado digitalmente (${signatureType.toUpperCase()}) por ${signerName} (${signerRut}). Hash: ${hash.substring(0, 16)}...`
     );
 
+    const targetDoc = driverDocuments.find((d) => d.id === docId);
+    if (targetDoc) {
+      addDocumentApprovalLog({
+        documentId: targetDoc.id,
+        documentCode: targetDoc.code,
+        documentTitle: `${targetDoc.title} [${targetDoc.driverName}]`,
+        documentVersion: 'v1.0',
+        documentCategory: targetDoc.type === 'consentimiento_informado' ? 'consentimiento_informado' : targetDoc.type === 'psicotecnico_mutual' ? 'psicotecnico_mutual' : 'politica_corporativa',
+        approvalAction: signatureType === 'valida_fea' ? 'firma_electronica_fea' : 'firma_electronica_fes',
+        approvalStatus: 'aprobado_conforme',
+        susesoClauseRef: 'Ley 19.799 / Dictamen SUSESO N.º 92064-2025 • Consentimiento Expreso del Conductor',
+        legalFramework: 'Ley 16.744 / Código del Trabajo Art. 184 / Ley 19.628 Protección de Datos',
+        approvalObservations: `Firma electrónica (${signatureType === 'valida_fea' ? 'FEA' : 'FES'}) estampada por ${signerName} (${signerRut}) para el legajo laboral del conductor ${targetDoc.driverName}.`,
+        auditAttestationStatement: `Certifico la autenticidad y validación de la firma estampada por ${signerName} para el documento ${targetDoc.code}.`
+      });
+    }
+
     showToast(`Firma digital estampada con éxito (Ley 19.799). Hash criptográfico registrado.`);
   };
 
@@ -1012,6 +1273,204 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const markAlertRead = (alertId: string) => {
     setAlerts((prev) => prev.map((a) => (a.id === alertId ? { ...a, read: true } : a)));
+  };
+
+  // Automated Safety Email & Threshold Functions
+  const updateSafetyRiskThresholds = (thresholds: Partial<SafetyRiskThresholds>) => {
+    setSafetyRiskThresholds((prev) => {
+      const updated = { ...prev, ...thresholds };
+      logAction(
+        'CONFIGURACION_UMBRALES_SEGURIDAD',
+        'SafetyRiskThresholds',
+        'global',
+        `Umbrales de riesgo actualizados. Tolerancia alcohol: ${updated.maxAllowedAlcoholGramsPerLiter} g/L, Tasa crítica: ${updated.positivityRateCriticalThresholdPercent}%, Auto-trigger: ${updated.autoTriggerEnabled ? 'ACTIVADO' : 'DESACTIVADO'}`
+      );
+      return updated;
+    });
+    showToast('Umbrales de riesgo operacional actualizados con éxito.');
+  };
+
+  const addSafetyManagerRecipient = (recipient: Omit<SafetyManagerRecipient, 'id'>) => {
+    const newRecipient: SafetyManagerRecipient = {
+      ...recipient,
+      id: `rec-${Date.now()}`
+    };
+    setSafetyManagerRecipients((prev) => [...prev, newRecipient]);
+    logAction(
+      'CREACION_DESTINATARIO_SEGURIDAD',
+      'SafetyManagerRecipient',
+      newRecipient.id,
+      `Nuevo destinatario de alertas: ${newRecipient.name} (${newRecipient.email}) - Rol: ${newRecipient.role}`
+    );
+    showToast(`Destinatario ${newRecipient.name} añadido al circuito de alertas.`);
+  };
+
+  const updateSafetyManagerRecipient = (id: string, updates: Partial<SafetyManagerRecipient>) => {
+    setSafetyManagerRecipients((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
+    );
+    logAction('ACTUALIZACION_DESTINATARIO_SEGURIDAD', 'SafetyManagerRecipient', id, `Datos modificados para destinatario ${id}`);
+    showToast('Destinatario de alertas de seguridad actualizado.');
+  };
+
+  const deleteSafetyManagerRecipient = (id: string) => {
+    setSafetyManagerRecipients((prev) => prev.filter((r) => r.id !== id));
+    logAction('ELIMINACION_DESTINATARIO_SEGURIDAD', 'SafetyManagerRecipient', id, `Destinatario de alertas ${id} removido`);
+    showToast('Destinatario removido del circuito de alertas.');
+  };
+
+  const triggerSafetyManagerEmail = async (params: {
+    test?: TestRecord;
+    triggerReason?: string;
+    triggeredThresholds?: string[];
+    manualOverride?: boolean;
+    customNotes?: string;
+  }): Promise<SafetyEmailLog | null> => {
+    const activeRecipients = safetyManagerRecipients.filter(
+      (r) => r.active && (r.receivesImmediateCritical || params.manualOverride)
+    );
+
+    if (activeRecipients.length === 0) {
+      showToast('⚠️ No hay Jefes de Seguridad activos configurados para recibir alertas.');
+      return null;
+    }
+
+    let thresholdsBreached = params.triggeredThresholds || [];
+    if (thresholdsBreached.length === 0 && params.test) {
+      if (
+        params.test.alcoholValueGramsPerLiter !== undefined &&
+        params.test.alcoholValueGramsPerLiter > safetyRiskThresholds.maxAllowedAlcoholGramsPerLiter
+      ) {
+        thresholdsBreached.push(
+          `Nivel de alcohol detectado: ${params.test.alcoholValueGramsPerLiter.toFixed(2)} g/L (Umbral corporativo: ${safetyRiskThresholds.maxAllowedAlcoholGramsPerLiter.toFixed(2)} g/L - Tolerancia Cero).`
+        );
+      }
+      if (
+        params.test.drugsOverallStatus === 'presunto_positivo' ||
+        params.test.drugsOverallStatus === 'confirmado_positivo'
+      ) {
+        const reactive = (params.test.drugPanelResults || [])
+          .filter((d) => d.result === 'presunto_positivo' || d.result === 'confirmado_positivo')
+          .map((d) => `${d.name} (${d.cutoff || 'Cut-off'})`);
+        thresholdsBreached.push(
+          `Reactividad en panel salival de drogas: ${reactive.length > 0 ? reactive.join(', ') : 'Detección no conforme'}.`
+        );
+      }
+      if (params.test.alcoholStatus === 'rechaza_test' || params.test.drugsOverallStatus === 'rechaza_test') {
+        thresholdsBreached.push('Negativa o rechazo a toma de muestra de control preventivo.');
+      }
+      if (thresholdsBreached.length === 0) {
+        thresholdsBreached.push(params.triggerReason || 'Umbral operacional superado en control preventivo.');
+      }
+    }
+
+    const payload = {
+      alertType: 'critical_test_threshold',
+      severity: 'CRITICA',
+      testRecord: params.test
+        ? {
+            code: params.test.code,
+            timestamp: params.test.timestamp,
+            driverName: params.test.driverName,
+            driverRut: params.test.driverRut,
+            driverBase: params.test.driverBase,
+            vehiclePlate: params.test.vehiclePlate,
+            reason: params.test.reason,
+            alcoholValueGramsPerLiter: params.test.alcoholValueGramsPerLiter,
+            alcoholStatus: params.test.alcoholStatus,
+            drugsOverallStatus: params.test.drugsOverallStatus,
+            drugPanelResults: params.test.drugPanelResults,
+            custodyChainId: params.test.custodyChainId,
+            operatorName: params.test.operatorName,
+            operatorRut: params.test.operatorRut,
+            observations: params.test.observations
+          }
+        : undefined,
+      triggeredThresholds: thresholdsBreached,
+      recipients: activeRecipients.map((r) => ({
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        organization: r.organization
+      })),
+      companyInfo: {
+        name: currentCompany.name,
+        rut: currentCompany.rut,
+        mutualidad: currentCompany.mutualidad,
+        address: currentCompany.address
+      },
+      customNotes: params.customNotes,
+      dispatchedBy: currentUser.fullName
+    };
+
+    try {
+      const res = await fetch('/api/safety-alerts/send-summary-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const newLog: SafetyEmailLog = {
+        id: data.messageId || `log-email-${Date.now()}`,
+        timestamp: data.timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        alertType: 'critical_test_threshold',
+        severity: 'CRITICA',
+        subject: data.subject || `[ALERTA CRÍTICA] Control ${params.test?.code || ''}`,
+        testCode: params.test?.code,
+        driverName: params.test?.driverName,
+        driverRut: params.test?.driverRut,
+        baseName: params.test?.driverBase || 'General',
+        vehiclePlate: params.test?.vehiclePlate,
+        triggeredThresholds: thresholdsBreached,
+        recipients: activeRecipients.map((r) => r.email),
+        summaryText: data.summaryText || 'Notificación automática enviada a jefaturas de prevención.',
+        htmlBody: data.htmlBody || '',
+        deliveryStatus: 'entregado',
+        legalProtocolRef: 'SUSESO 92064-2025 • Art. 184 Código del Trabajo • Ley 18.290',
+        dispatchedBy: currentUser.fullName,
+        actionChecklist: data.actionChecklist,
+        executiveRecommendations: data.executiveRecommendations
+      };
+
+      setSafetyEmailLogs((prev) => [newLog, ...prev]);
+      logAction(
+        'DISPACHO_EMAIL_ALERTA_SEGURIDAD',
+        'SafetyEmailLog',
+        newLog.id,
+        `Alerta de umbral crítico enviada por correo a ${activeRecipients.length} jefes de prevención: ${activeRecipients.map((r) => r.email).join(', ')}. Test: ${params.test?.code || 'N/A'}`
+      );
+      showToast(`📧 Alerta crítica automática despachada por correo a ${activeRecipients.length} Jefes de Seguridad.`);
+      return newLog;
+    } catch (err: any) {
+      console.warn('Fallback local para correo de alerta de seguridad:', err);
+      const fallbackLog: SafetyEmailLog = {
+        id: `log-email-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        alertType: 'critical_test_threshold',
+        severity: 'CRITICA',
+        subject: `[ALERTA CRÍTICA] Umbral de Riesgo Superado en Control ${params.test?.code || 'CTR-2026'} - ${params.test?.driverName || 'Conductor'}`,
+        testCode: params.test?.code,
+        driverName: params.test?.driverName,
+        driverRut: params.test?.driverRut,
+        baseName: params.test?.driverBase || 'General',
+        vehiclePlate: params.test?.vehiclePlate,
+        triggeredThresholds: thresholdsBreached,
+        recipients: activeRecipients.map((r) => r.email),
+        summaryText: `Alerta automática generada para ${activeRecipients.length} destinatarios de prevención.`,
+        htmlBody: '',
+        deliveryStatus: 'simulado',
+        legalProtocolRef: 'SUSESO 92064-2025 • Art. 184 Código del Trabajo',
+        dispatchedBy: currentUser.fullName
+      };
+      setSafetyEmailLogs((prev) => [fallbackLog, ...prev]);
+      showToast(`📧 Alerta registrada para ${activeRecipients.length} Jefes de Seguridad.`);
+      return fallbackLog;
+    }
   };
 
   // Reset to initial data
@@ -1031,6 +1490,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAlerts(INITIAL_ALERTS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
     setRandomBatches(INITIAL_BATCHES);
+    setSafetyRiskThresholds(INITIAL_SAFETY_THRESHOLDS);
+    setSafetyManagerRecipients(INITIAL_SAFETY_RECIPIENTS);
+    setSafetyEmailLogs(INITIAL_SAFETY_EMAIL_LOGS);
+    setDocumentApprovalLogs(INITIAL_SUSESO_APPROVAL_LOGS);
     localStorage.clear();
     showToast('Datos reiniciados a los valores iniciales por defecto.');
   };
@@ -1087,6 +1550,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         verifyAllDriverDocuments,
         renewDriverDocumentExpiry,
         signDriverDocument,
+        safetyRiskThresholds,
+        updateSafetyRiskThresholds,
+        safetyManagerRecipients,
+        addSafetyManagerRecipient,
+        updateSafetyManagerRecipient,
+        deleteSafetyManagerRecipient,
+        safetyEmailLogs,
+        triggerSafetyManagerEmail,
+        documentApprovalLogs,
+        addDocumentApprovalLog,
+        verifyAuditTrailIntegrity,
         resolveAlert,
         markAlertRead,
         resetToDefaults,

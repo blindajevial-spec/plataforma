@@ -1,6 +1,6 @@
 {
   "name": "Blindaje Vial 360",
   "description": "Plataforma para empresas de transporte en Chile para prevención de riesgos, gestión y trazabilidad de controles de alcohol y drogas, y cumplimiento normativo (Ley 16.744, SUSESO, ISO 37301).",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

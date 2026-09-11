@@ -24,6 +24,8 @@ export type NavView =
   | 'equipment'
   | 'reports'
   | 'audit_logs'
+  | 'suseso_verification_log'
+  | 'driver_qr_scanner'
   | 'architecture'
   | 'api'
   | 'image_studio'
@@ -405,3 +407,124 @@ export interface AuditLogEntry {
 }
 
 export type AuditLog = AuditLogEntry;
+
+// -------------------------------------------------------------
+// Safety Automated Email & Risk Threshold Interfaces
+// -------------------------------------------------------------
+export interface SafetyRiskThresholds {
+  maxAllowedAlcoholGramsPerLiter: number; // default: 0.00 (Tolerancia Cero)
+  positivityRateCriticalThresholdPercent: number; // default: 0.50% (Meta ISO 39001 / SUSESO)
+  shiftClusterAlertCount: number; // default: 2 (Positivos simultáneos por turno)
+  notifyOnAlcoholPositive: boolean; // default: true
+  notifyOnDrugReactive: boolean; // default: true
+  notifyOnTestRefusal: boolean; // default: true
+  notifyOnPostIncident: boolean; // default: true
+  autoTriggerEnabled: boolean; // default: true
+}
+
+export interface SafetyManagerRecipient {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  phone?: string;
+  organization: string; // e.g., 'Prevención de Riesgos', 'Oficial de Cumplimiento', 'Mutualidad ACHS', 'CPHS'
+  active: boolean;
+  receivesImmediateCritical: boolean;
+  receivesShiftSummary: boolean;
+}
+
+export interface SafetyEmailLog {
+  id: string;
+  timestamp: string;
+  alertType: 'critical_test_threshold' | 'aggregate_rate_exceeded' | 'cluster_positivity' | 'test_refusal';
+  severity: 'CRITICA' | 'ALTA' | 'ADVERTENCIA';
+  subject: string;
+  testCode?: string;
+  driverName?: string;
+  driverRut?: string;
+  baseName: string;
+  vehiclePlate?: string;
+  triggeredThresholds: string[];
+  recipients: string[];
+  summaryText: string;
+  htmlBody: string;
+  deliveryStatus: 'entregado' | 'enviado' | 'simulado';
+  legalProtocolRef: string;
+  dispatchedBy: string;
+  actionChecklist?: string[];
+  executiveRecommendations?: string[];
+}
+
+// -------------------------------------------------------------
+// SUSESO Compliance Document Approval & Verification Log (RF-019)
+// -------------------------------------------------------------
+export type ComplianceDocumentCategory =
+  | 'politica_corporativa'
+  | 'reglamento_riohs'
+  | 'consentimiento_informado'
+  | 'cadena_custodia'
+  | 'manual_suseso'
+  | 'protocolo_suseso'
+  | 'calibracion_metrologica'
+  | 'psicotecnico_mutual'
+  | 'matriz_riesgo'
+  | 'capacitacion_conductores';
+
+export type ComplianceApprovalAction =
+  | 'aprobacion_formal_directorio'
+  | 'visado_cumplimiento_suseso'
+  | 'firma_electronica_fea'
+  | 'firma_electronica_fes'
+  | 'ratificacion_comite_paritario'
+  | 'revalidacion_periodica_anual'
+  | 'inspeccion_auditor_externo';
+
+export interface ComplianceDocumentApprovalLog {
+  id: string; // e.g., 'VRF-SUSESO-2026-0001'
+  blockIndex: number; // Block number in hash chain (1, 2, 3...)
+  timestamp: string; // Exact human-readable Chilean timestamp (e.g., '2026-09-08 14:32:15 CLT')
+  timestampEpoch: number; // Exact millisecond timestamp for sorting
+  
+  // Certifying User / Approver
+  userId: string; // Unique User ID (e.g., 'usr-comp-01', 'usr-prev-01')
+  userName: string; // Full legal name
+  userRut: string; // RUT formatted
+  userRole: string; // Official role (Compliance Officer, Prevencionista, etc.)
+  userEmail: string; // Official corporate email
+  
+  // Organization
+  companyId: string;
+  companyName: string;
+  companyRut: string;
+  
+  // Critical Compliance Document Info
+  documentId: string; // Internal system ID or code
+  documentCode: string; // e.g. 'POL-AD-2026', 'RIOHS-CLAUS-DROGAS'
+  documentTitle: string;
+  documentVersion: string; // e.g. 'v3.2'
+  documentCategory: ComplianceDocumentCategory;
+  fileHash?: string; // SHA-256 of document binary / content
+  
+  // Approval Details & Legal Basis
+  approvalAction: ComplianceApprovalAction;
+  approvalStatus: 'aprobado_conforme' | 'aprobado_con_observaciones' | 'revocado';
+  susesoClauseRef: string; // e.g. 'Dictamen SUSESO 92064-2025 • Art. 184 Código del Trabajo'
+  legalFramework: string; // e.g. 'Ley 16.744 / Ley 18.290 / Circular 3331'
+  
+  // Cryptographic Proofs & Blockchain Chaining
+  integrityHash: string; // SHA-256 seal computed over (blockIndex + prevHash + timestamp + userId + documentCode + version + action)
+  previousHash: string; // Cryptographic pointer to previous block
+  signatureAlgorithm: string; // 'ECDSA-SHA256 / RSA-4096'
+  timeStampingAuthority: string; // e.g. 'TSA RFC 3161 - Servidor Horario SHOA / Subtel'
+  certificateAuthority: string; // e.g. 'PKI e-CertChile / Acreditado Subsecretaría de Economía'
+  
+  // Network & Session Traceability
+  ipAddress: string;
+  sessionTokenHash: string; // Hashed session fingerprint
+  
+  // Content & Audit Trail
+  approvalObservations: string;
+  auditAttestationStatement: string; // Formal legal declaration for SUSESO
+  isChainedValid?: boolean;
+}

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { RoleType, NavView } from '../types';
 import { BrandLogo } from './BrandLogo';
+import { SafetyAlertsEmailModal } from './SafetyAlertsEmailModal';
+import { AdminExportBackupModal } from './AdminExportBackupModal';
 import {
   ShieldCheck,
   AlertTriangle,
@@ -15,16 +17,20 @@ import {
   Smartphone,
   Layers,
   ExternalLink,
-  FileCode
+  FileCode,
+  Mail,
+  QrCode,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface NavbarProps {
   onNavigate?: (view: NavView) => void;
   onToggleMobileMode?: () => void;
   isMobileMode?: boolean;
+  onOpenDriverQRScanner?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, isMobileMode = false }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, isMobileMode = false, onOpenDriverQRScanner }) => {
   const {
     currentUser,
     switchRole,
@@ -42,6 +48,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, 
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [safetyEmailModalOpen, setSafetyEmailModalOpen] = useState(false);
+  const [exportBackupModalOpen, setExportBackupModalOpen] = useState(false);
 
   const blockedDrivers = drivers.filter((d) => d.status === 'bloqueado_preventivo');
   const unreadAlerts = alerts.filter((a) => !a.read);
@@ -148,6 +156,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, 
 
         {/* Right Actions: Architecture, Mobile Toggle, Alerts, Role Switcher */}
         <div className="flex items-center gap-2">
+          {/* Quick Driver QR Scanner Action */}
+          {onOpenDriverQRScanner && (
+            <button
+              onClick={onOpenDriverQRScanner}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs"
+              title="Escanear Código QR de Conductor en Garita"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline text-[11px]">Escanear QR Garita</span>
+            </button>
+          )}
+
           {/* Quick Architecture Button */}
           {onNavigate && (
             <button
@@ -175,6 +195,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, 
               <span className="hidden sm:inline">{isMobileMode ? 'Vista Escritorio' : 'Modo Operador'}</span>
             </button>
           )}
+
+          {/* Admin Backups & Exports Quick Action */}
+          <button
+            onClick={() => setExportBackupModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-lg text-xs transition cursor-pointer text-slate-200"
+            title="Centro de Respaldos Administrativos (CSV / Excel)"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden lg:inline text-[11px] font-medium">Respaldos Excel/CSV</span>
+          </button>
+
+          {/* Safety Alerts by Email Quick Action */}
+          <button
+            onClick={() => setSafetyEmailModalOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-lg text-xs transition cursor-pointer text-slate-200"
+            title="Gestor de Alertas Críticas por Correo a Prevención"
+          >
+            <Mail className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden xl:inline text-[11px] font-medium">Alertas Prevención</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          </button>
 
           {/* Alerts Dropdown */}
           <div className="relative">
@@ -326,6 +367,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onToggleMobileMode, 
           </button>
         </div>
       </div>
+
+      {/* Safety Alerts Email Modal */}
+      <SafetyAlertsEmailModal
+        isOpen={safetyEmailModalOpen}
+        onClose={() => setSafetyEmailModalOpen(false)}
+      />
+
+      {/* Admin Export & Backup Modal */}
+      <AdminExportBackupModal
+        isOpen={exportBackupModalOpen}
+        onClose={() => setExportBackupModalOpen(false)}
+        initialType="master"
+      />
     </header>
   );
 };
